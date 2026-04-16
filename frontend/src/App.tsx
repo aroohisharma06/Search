@@ -4,6 +4,7 @@ interface SymbolItem {
   id: number | string;
   symbol_name: string;
   svg_url: string;
+  png_url?: string;
   company?: string;
   category?: string;
   device_type?: string;
@@ -200,7 +201,7 @@ export default function App() {
                         }}
                       >
                         <img
-                          src={item.svg_url}
+                          src={item.png_url || item.svg_url}
                           className="w-9 h-9 object-contain bg-gray-50 rounded p-1"
                         />
                         <span className="text-sm text-black">
@@ -302,7 +303,7 @@ export default function App() {
                     >
                       <div className="h-28 flex items-center justify-center bg-gray-200 rounded mb-1">
                         <img
-                          src={item.svg_url}
+                          src={item.png_url || item.svg_url}
                           className="max-h-full max-w-full object-contain"
                         />
                       </div>
@@ -319,7 +320,7 @@ export default function App() {
                       key={getUniqueId(item)}
                       className="flex gap-4 bg-white p-3 rounded"
                     >
-                      <img src={item.svg_url} className="w-12" />
+                      <img src={item.png_url || item.svg_url} className="w-12" />
                       <div>
                         <p>{item.symbol_name}</p>
                         <p className="text-xs text-gray-500">{item.company}</p>
@@ -348,7 +349,7 @@ export default function App() {
             }`}
           >
             <img
-              src={selected.svg_url}
+               src={selected.png_url || selected.svg_url}
               className="w-1/3 object-contain bg-gray-100"
             />
             <div className="text-sm space-y-4 font-bold">
