@@ -2,15 +2,22 @@ import { useEffect, useState } from "react";
 
 interface SymbolItem {
   id: number | string;
+  kid_symbol?: number | string;
   symbol_name: string;
-  svg_url: string;
+  svg_url?: string;
   png_url?: string;
+  step_url?: string | null;
+  description?: string;
   company?: string;
   category?: string;
+  subcategory?: string;
   device_type?: string;
   voltage_rating?: number;
   current_rating?: number;
   power_rating?: number;
+  voltage?: string | number;
+  current?: string | number;
+  power?: string | number;
   package?: string;
   pin_count?: number;
   mount_type?: string;
@@ -18,8 +25,47 @@ interface SymbolItem {
   simulation_available?: boolean;
   tags?: string[];
   license?: string;
+  llm_generated?: boolean;
+  llm_source?: string;
+  llm_note?: string;
   _uid?: string;
   _time?: number;
+}
+
+function SearchIcon({ className = "w-4 h-4" }: { className?: string }) {
+  return (
+    <svg
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="2"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      className={className}
+      aria-hidden="true"
+    >
+      <circle cx="11" cy="11" r="7" />
+      <path d="m20 20-3.5-3.5" />
+    </svg>
+  );
+}
+
+function CloseIcon({ className = "w-4 h-4" }: { className?: string }) {
+  return (
+    <svg
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="2"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      className={className}
+      aria-hidden="true"
+    >
+      <path d="M18 6 6 18" />
+      <path d="m6 6 12 12" />
+    </svg>
+  );
 }
 
 export default function App() {
@@ -28,6 +74,7 @@ export default function App() {
   const [selected, setSelected] = useState<SymbolItem | null>(null);
   const [recent, setRecent] = useState<SymbolItem[]>([]);
   const [loading, setLoading] = useState(false);
+  const [aiLoading, setAiLoading] = useState(false);
   const [theme, setTheme] = useState<"light" | "dark">("light");
   const [showDropdown, setShowDropdown] = useState(false);
   const [hasSearched, setHasSearched] = useState(false);
@@ -36,7 +83,100 @@ export default function App() {
   const isHome = !hasSearched;
 
   const getUniqueId = (item: SymbolItem) =>
-    (item.id ?? "") + "_" + item.symbol_name + "_" + item.svg_url;
+    (item.id ?? item.kid_symbol ?? "") +
+    "_" +
+    item.symbol_name +
+    "_" +
+    (item.png_url || item.svg_url || "");
+
+  const getImageUrl = (item: SymbolItem) => item.png_url || item.svg_url || "";
+
+  const showValue = (value: unknown) => {
+    if (value === undefined || value === null || value === "" || value === 0) {
+      return "-";
+    }
+
+    return String(value);
+  };
+
+  const showMeta = (value: unknown) => {
+    if (value === undefined || value === null || value === "" || value === 0) {
+      return "Not specified";
+    }
+
+    return String(value);
+  };
+
+  const showRating = (value: unknown, unit: string) => {
+    if (value === undefined || value === null || value === "" || value === 0) {
+      return "Not specified";
+    }
+
+    const text = String(value);
+    return /[a-zA-Z]/.test(text) ? text : `${text} ${unit}`;
+  };
+
+  const hasMissingInfo = (item: SymbolItem) => {
+    const missing = (value: unknown) =>
+      value === undefined ||
+      value === null ||
+      value === "" ||
+      value === 0 ||
+      value === "SVG" ||
+      value === "SVG image from svgs folder";
+
+    return (
+      missing(item.description) ||
+      missing(item.category) ||
+      missing(item.device_type) ||
+      !item.tags?.length
+    );
+  };
+
+  const enrichWithLlm = (item: SymbolItem) => {
+    if (aiLoading) return;
+
+    setAiLoading(true);
+
+    fetch("http://localhost:3000/api/llm/svg-info", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(item),
+    })
+      .then((res) => (res.ok ? res.json() : null))
+      .then((data) => {
+        if (data && typeof data === "object") {
+          const enriched = { ...item, ...data };
+          setSelected((current) =>
+            current && getUniqueId(current) === getUniqueId(item)
+              ? { ...current, ...data }
+              : current,
+          );
+          saveRecent(enriched);
+        }
+      })
+      .finally(() => setAiLoading(false));
+  };
+
+  const openItem = (item: SymbolItem) => {
+    saveRecent(item);
+    setSelected(item);
+
+    fetch(`http://localhost:3000/api/symbol/${encodeURIComponent(item.id)}`)
+      .then((res) => (res.ok ? res.json() : item))
+      .then((data) => {
+        if (data && typeof data === "object") {
+          const fullItem = { ...item, ...data };
+          setSelected(fullItem);
+          saveRecent(fullItem);
+          if (hasMissingInfo(fullItem)) enrichWithLlm(fullItem);
+        }
+      })
+      .catch(() => {
+        setSelected(item);
+        enrichWithLlm(item);
+      });
+  };
 
   useEffect(() => {
     const saved = localStorage.getItem("theme") as "light" | "dark";
@@ -57,6 +197,17 @@ export default function App() {
       }
     }
   }, []);
+
+  useEffect(() => {
+    if (!selected) return;
+
+    const closeOnEscape = (event: KeyboardEvent) => {
+      if (event.key === "Escape") setSelected(null);
+    };
+
+    window.addEventListener("keydown", closeOnEscape);
+    return () => window.removeEventListener("keydown", closeOnEscape);
+  }, [selected]);
 
   const fetchResults = () => {
     const trimmed = query.trim();
@@ -122,13 +273,14 @@ export default function App() {
                 placeholder="Search components..."
                 className="flex-1 px-5 py-3 outline-none"
               />
-             <span
-                  onClick={fetchResults}
-                  className="px-5 text-gray-700 hover:text-black text-lg flex items-center cursor-pointer "
-                >
-                  🔍
-                </span>
-                
+              <span
+                onClick={fetchResults}
+                className="px-5 text-gray-700 hover:text-black text-lg flex items-center cursor-pointer"
+                role="button"
+                aria-label="Search"
+              >
+                <SearchIcon />
+              </span>
             </div>
           </div>
         </div>
@@ -161,12 +313,11 @@ export default function App() {
                         setQuery("");
                         setResults([]);
                       }}
-                      className="absolute right-2 top-1/2 -translate-y-1/2 
-             text-black text-2xl font-bold cursor-pointer
-             opacity-100 z-10
-             hover:text-black-600"
+                      className="absolute right-3 top-1/2 z-10 -translate-y-1/2 text-slate-500 cursor-pointer hover:text-black"
+                      role="button"
+                      aria-label="Clear search"
                     >
-                      ×
+                      <CloseIcon className="w-4 h-4" />
                     </span>
                   )}
                 </div>
@@ -174,9 +325,11 @@ export default function App() {
                 {/* SEARCH ICON  */}
                 <span
                   onClick={fetchResults}
-                  className="px-2 text-gray-700 hover:text-black text-lg flex items-center"
+                  className="px-3 text-gray-700 hover:text-black text-lg flex items-center cursor-pointer"
+                  role="button"
+                  aria-label="Search"
                 >
-                  🔍
+                  <SearchIcon />
                 </span>
               </div>
 
@@ -195,13 +348,12 @@ export default function App() {
                       <div
                         className="flex items-center gap-2 flex-1"
                         onClick={() => {
-                          saveRecent(item);
-                          setSelected(item);
+                          openItem(item);
                           setShowDropdown(false);
                         }}
                       >
                         <img
-                          src={item.png_url || item.svg_url}
+                          src={getImageUrl(item)}
                           className="w-9 h-9 object-contain bg-gray-50 rounded p-1"
                         />
                         <span className="text-sm text-black">
@@ -210,7 +362,7 @@ export default function App() {
                       </div>
 
                       <button
-                        onMouseDown={(e) => e.preventDefault()} //prevents dropdown closing
+                        onMouseDown={(e) => e.preventDefault()}
                         onClick={(e) => {
                           e.stopPropagation();
                           removeRecent(item._uid!);
@@ -220,11 +372,14 @@ export default function App() {
                           border: "none",
                           cursor: "pointer",
                           color: "black",
-                          fontSize: "18px",
-                          fontWeight: "bold",
+                          padding: "0",
+                          display: "flex",
+                          alignItems: "center",
+                          justifyContent: "center",
                         }}
+                        aria-label="Remove recent item"
                       >
-                        ×
+                        <CloseIcon className="w-4 h-4" />
                       </button>
                     </div>
                   ))}
@@ -273,7 +428,7 @@ export default function App() {
                 onClick={() => setTheme(theme === "dark" ? "light" : "dark")}
                 className="px-3 py-1 rounded bg-black text-white"
               >
-                {theme === "dark" ? "🌞 Light" : "🌙 Dark"}
+                {theme === "dark" ? "Light" : "Dark"}
               </button>
             </div>
           </div>
@@ -294,8 +449,7 @@ export default function App() {
                     <div
                       key={getUniqueId(item)}
                       onClick={() => {
-                        saveRecent(item);
-                        setSelected(item);
+                        openItem(item);
                       }}
                       className={`border p-2 cursor-pointer hover:shadow-md rounded ${
                         theme === "light" ? "bg-white" : "bg-[#1e293b]"
@@ -303,7 +457,7 @@ export default function App() {
                     >
                       <div className="h-28 flex items-center justify-center bg-gray-200 rounded mb-1">
                         <img
-                          src={item.png_url || item.svg_url}
+                          src={getImageUrl(item)}
                           className="max-h-full max-w-full object-contain"
                         />
                       </div>
@@ -318,9 +472,10 @@ export default function App() {
                   {results.map((item) => (
                     <div
                       key={getUniqueId(item)}
-                      className="flex gap-4 bg-white p-3 rounded"
+                      onClick={() => openItem(item)}
+                      className="flex gap-4 bg-white p-3 rounded cursor-pointer hover:shadow-md"
                     >
-                      <img src={item.png_url || item.svg_url} className="w-12" />
+                      <img src={getImageUrl(item)} className="w-12" />
                       <div>
                         <p>{item.symbol_name}</p>
                         <p className="text-xs text-gray-500">{item.company}</p>
@@ -342,38 +497,151 @@ export default function App() {
         >
           <div
             onClick={(e) => e.stopPropagation()}
-            className={`w-[80%] max-h-[90vh] overflow-y-auto rounded-lg p-6 flex gap-6 ${
+            className={`relative w-[80%] max-h-[90vh] overflow-y-auto rounded-lg p-6 flex gap-6 ${
               theme === "light"
                 ? "bg-white text-black"
                 : "bg-[#1e293b] text-white"
             }`}
           >
+            <button
+              onClick={() => setSelected(null)}
+              style={{
+                position: "absolute",
+                top: "10px",
+                right: "15px",
+                background: "none",
+                border: "none",
+                cursor: "pointer",
+                color: "black",
+                padding: "0",
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "center",
+              }}
+              aria-label="Close details"
+            >
+              <CloseIcon className="w-5 h-5" />
+            </button>
             <img
-               src={selected.png_url || selected.svg_url}
+              src={getImageUrl(selected)}
               className="w-1/3 object-contain bg-gray-100"
+              onError={(event) => {
+                event.currentTarget.style.display = "none";
+                enrichWithLlm(selected);
+              }}
             />
-            <div className="text-sm space-y-4 font-bold">
-              <p>ID: {selected.id}</p>
-              <p>Symbol: {selected.symbol_name}</p>
-              <p>Company: {selected.company || "-"}</p>
-              <p>Category: {selected.category || "-"}</p>
-              <p>Device: {selected.device_type || "-"}</p>
-              <p>Package: {selected.package || "-"}</p>
-              <p>Pins: {selected.pin_count || "-"}</p>
-              <p>Voltage: {selected.voltage_rating || "-"} V</p>
-              <p>Current: {selected.current_rating || "-"} A</p>
-              <p>Power: {selected.power_rating || "-"} W</p>
-              <p>
-                Datasheet:{" "}
-                <a
-                  href={selected.datasheet}
-                  target="_blank"
-                  className="text-blue-500 underline"
+            <div className="text-sm space-y-4">
+              {(aiLoading || selected.llm_generated) && (
+                <p
+                  className={`inline-flex rounded px-2 py-1 text-xs font-semibold ${
+                    theme === "light"
+                      ? "bg-yellow-100 text-yellow-800"
+                      : "bg-yellow-400/20 text-yellow-200"
+                  }`}
                 >
-                  Open Datasheet
-                </a>
+                  {aiLoading
+                    ? "Getting AI info..."
+                    : `AI inferred${selected.llm_source ? ` (${selected.llm_source})` : ""}`}
+                </p>
+              )}
+
+              <p>
+                <span className="font-bold">ID:</span> {showValue(selected.id)}
               </p>
-              <p>License: {selected.license}</p>
+              <p>
+                <span className="font-bold">Symbol:</span>{" "}
+                {showValue(selected.symbol_name)}
+              </p>
+              <p>
+                <span className="font-bold">Company:</span>{" "}
+                {showMeta(selected.company)}
+              </p>
+              <p>
+                <span className="font-bold">Category:</span>{" "}
+                {showMeta(selected.category)}
+              </p>
+
+              <p>
+                <span className="font-bold">Device:</span>{" "}
+                {showMeta(selected.device_type)}
+              </p>
+              <p>
+                <span className="font-bold">Description: </span>{" "}
+                {showMeta(selected.description)}
+              </p>
+              <p>
+                <span className="font-bold">Package:</span>{" "}
+                {showMeta(selected.package)}
+              </p>
+              <p>
+                <span className="font-bold">Pins:</span>{" "}
+                {showValue(selected.pin_count)}
+              </p>
+              <p>
+                <span className="font-bold">Mount:</span>{" "}
+                {showMeta(selected.mount_type)}
+              </p>
+
+              <p>
+                <span className="font-bold">Voltage:</span>{" "}
+                {showRating(selected.voltage_rating ?? selected.voltage, "V")}
+              </p>
+
+              <p>
+                <span className="font-bold">Current:</span>{" "}
+                {showRating(selected.current_rating ?? selected.current, "A")}
+              </p>
+
+              <p>
+                <span className="font-bold">Power:</span>{" "}
+                {showRating(selected.power_rating ?? selected.power, "W")}
+              </p>
+
+              <p>
+                <span className="font-bold">Datasheet:</span>{" "}
+                {selected.datasheet ? (
+                  <a
+                    href={selected.datasheet}
+                    target="_blank"
+                    rel="noreferrer"
+                    className="text-blue-500 underline"
+                  >
+                    Open Datasheet
+                  </a>
+                ) : (
+                  "Not specified"
+                )}
+              </p>
+
+              {selected.step_url && (
+                <p>
+                  <span className="font-bold">STEP:</span>{" "}
+                  <a
+                    href={selected.step_url}
+                    target="_blank"
+                    rel="noreferrer"
+                    className="text-blue-500 underline"
+                  >
+                    Open STEP
+                  </a>
+                </p>
+              )}
+
+              <p>
+                <span className="font-bold">Tags:</span>{" "}
+                {selected.tags?.length
+                  ? selected.tags.join(", ")
+                  : "Not specified"}
+              </p>
+
+              <p>
+                <span className="font-bold">License:</span>{" "}
+                {showValue(selected.license)}
+              </p>
+
+              {selected.llm_note && (
+                <p className="text-xs opacity-70">{selected.llm_note}</p>
+              )}
             </div>
           </div>
         </div>
