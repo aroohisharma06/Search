@@ -2,7 +2,6 @@ import { useEffect, useState } from "react";
 
 interface SymbolItem {
   id: number | string;
-  kid_symbol?: number | string;
   symbol_name: string;
   svg_url?: string;
   png_url?: string;
@@ -10,26 +9,48 @@ interface SymbolItem {
   description?: string;
   company?: string;
   category?: string;
-  subcategory?: string;
-  device_type?: string;
   voltage_rating?: number;
   current_rating?: number;
   power_rating?: number;
   voltage?: string | number;
   current?: string | number;
   power?: string | number;
+  keywords?: string;
   package?: string;
   pin_count?: number;
   mount_type?: string;
   datasheet?: string;
-  simulation_available?: boolean;
   tags?: string[];
   license?: string;
-  llm_generated?: boolean;
-  llm_source?: string;
-  llm_note?: string;
+  license_info?: LicenseInfo;
+  license_analysis?: LicenseAnalysis;
   _uid?: string;
   _time?: number;
+}
+
+interface LicenseInfo {
+  title?: string;
+  name?: string;
+  license_type?: string;
+  url?: string;
+  source_file?: string;
+  summary?: string;
+  attribution_required?: boolean;
+  attribution_requirements?: string;
+  exception?: string;
+  redistribution?: string;
+  warranty?: string;
+  full_text?: string;
+}
+
+interface LicenseAnalysis {
+  license_name: string;
+  license_type: string;
+  category: string;
+  commercial_use: boolean;
+  private_use: boolean;
+  redistribution: string;
+  attribution_required: boolean;
 }
 
 function SearchIcon({ className = "w-4 h-4" }: { className?: string }) {
@@ -74,7 +95,6 @@ export default function App() {
   const [selected, setSelected] = useState<SymbolItem | null>(null);
   const [recent, setRecent] = useState<SymbolItem[]>([]);
   const [loading, setLoading] = useState(false);
-  const [aiLoading, setAiLoading] = useState(false);
   const [theme, setTheme] = useState<"light" | "dark">("light");
   const [showDropdown, setShowDropdown] = useState(false);
   const [hasSearched, setHasSearched] = useState(false);
@@ -83,7 +103,7 @@ export default function App() {
   const isHome = !hasSearched;
 
   const getUniqueId = (item: SymbolItem) =>
-    (item.id ?? item.kid_symbol ?? "") +
+    (item.id ?? "") +
     "_" +
     item.symbol_name +
     "_" +
@@ -116,48 +136,6 @@ export default function App() {
     return /[a-zA-Z]/.test(text) ? text : `${text} ${unit}`;
   };
 
-  const hasMissingInfo = (item: SymbolItem) => {
-    const missing = (value: unknown) =>
-      value === undefined ||
-      value === null ||
-      value === "" ||
-      value === 0 ||
-      value === "SVG" ||
-      value === "SVG image from svgs folder";
-
-    return (
-      missing(item.description) ||
-      missing(item.category) ||
-      missing(item.device_type) ||
-      !item.tags?.length
-    );
-  };
-
-  const enrichWithLlm = (item: SymbolItem) => {
-    if (aiLoading) return;
-
-    setAiLoading(true);
-
-    fetch("http://localhost:3000/api/llm/svg-info", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(item),
-    })
-      .then((res) => (res.ok ? res.json() : null))
-      .then((data) => {
-        if (data && typeof data === "object") {
-          const enriched = { ...item, ...data };
-          setSelected((current) =>
-            current && getUniqueId(current) === getUniqueId(item)
-              ? { ...current, ...data }
-              : current,
-          );
-          saveRecent(enriched);
-        }
-      })
-      .finally(() => setAiLoading(false));
-  };
-
   const openItem = (item: SymbolItem) => {
     saveRecent(item);
     setSelected(item);
@@ -169,12 +147,10 @@ export default function App() {
           const fullItem = { ...item, ...data };
           setSelected(fullItem);
           saveRecent(fullItem);
-          if (hasMissingInfo(fullItem)) enrichWithLlm(fullItem);
         }
       })
       .catch(() => {
         setSelected(item);
-        enrichWithLlm(item);
       });
   };
 
@@ -270,7 +246,7 @@ export default function App() {
                 value={query}
                 onChange={(e) => setQuery(e.target.value)}
                 onKeyDown={(e) => e.key === "Enter" && fetchResults()}
-                placeholder="Search components..."
+                placeholder="Search components, parameters, ID, or license..."
                 className="flex-1 px-5 py-3 outline-none"
               />
               <span
@@ -303,7 +279,7 @@ export default function App() {
                     onBlur={() => setTimeout(() => setShowDropdown(false), 200)}
                     onChange={(e) => setQuery(e.target.value)}
                     onKeyDown={(e) => e.key === "Enter" && fetchResults()}
-                    placeholder="Search components..."
+                    placeholder="Search components, parameters, ID, or license..."
                     className="w-full px-3 py-2 pr-12 text-black outline-none"
                   />
 
@@ -527,24 +503,9 @@ export default function App() {
               className="w-1/3 object-contain bg-gray-100"
               onError={(event) => {
                 event.currentTarget.style.display = "none";
-                enrichWithLlm(selected);
               }}
             />
             <div className="text-sm space-y-4">
-              {(aiLoading || selected.llm_generated) && (
-                <p
-                  className={`inline-flex rounded px-2 py-1 text-xs font-semibold ${
-                    theme === "light"
-                      ? "bg-yellow-100 text-yellow-800"
-                      : "bg-yellow-400/20 text-yellow-200"
-                  }`}
-                >
-                  {aiLoading
-                    ? "Getting AI info..."
-                    : `AI inferred${selected.llm_source ? ` (${selected.llm_source})` : ""}`}
-                </p>
-              )}
-
               <p>
                 <span className="font-bold">ID:</span> {showValue(selected.id)}
               </p>
@@ -562,12 +523,12 @@ export default function App() {
               </p>
 
               <p>
-                <span className="font-bold">Device:</span>{" "}
-                {showMeta(selected.device_type)}
-              </p>
-              <p>
                 <span className="font-bold">Description: </span>{" "}
                 {showMeta(selected.description)}
+              </p>
+              <p>
+                <span className="font-bold">Keywords:</span>{" "}
+                {showMeta(selected.keywords)}
               </p>
               <p>
                 <span className="font-bold">Package:</span>{" "}
@@ -639,9 +600,42 @@ export default function App() {
                 {showValue(selected.license)}
               </p>
 
-              {selected.llm_note && (
-                <p className="text-xs opacity-70">{selected.llm_note}</p>
+              {selected.license_info && (
+                <>
+                  <p>
+                    <span className="font-bold">License Type:</span>{" "}
+                    {showMeta(selected.license_info.license_type)}
+                  </p>
+                  <p>
+                    <span className="font-bold">Attribution:</span>{" "}
+                    {selected.license_info.attribution_required
+                      ? showMeta(selected.license_info.attribution_requirements)
+                      : "No attribution required for normal use"}
+                  </p>
+                </>
               )}
+
+              {selected.license_analysis && (
+                <>
+                  <p>
+                    <span className="font-bold">License Category:</span>{" "}
+                    {showMeta(selected.license_analysis.category)}
+                  </p>
+                  <p>
+                    <span className="font-bold">Commercial Use:</span>{" "}
+                    {selected.license_analysis.commercial_use ? "Allowed" : "Not specified"}
+                  </p>
+                  <p>
+                    <span className="font-bold">Private Use:</span>{" "}
+                    {selected.license_analysis.private_use ? "Allowed" : "Not specified"}
+                  </p>
+                  <p>
+                    <span className="font-bold">Redistribution:</span>{" "}
+                    {showMeta(selected.license_analysis.redistribution)}
+                  </p>
+                </>
+              )}
+
             </div>
           </div>
         </div>

@@ -11,6 +11,7 @@ const __dirname = path.dirname(__filename);
 const DB_PATH = path.join(__dirname, "../data/symbols.db");
 const SYMBOLS_DIR = path.join(__dirname, "../data/symbols");
 const SVG_DIR = path.join(__dirname, "../data/svgs");
+const KICAD_LIBRARY_LICENSE = "Creative Commons CC-BY-SA 4.0 with KiCad exception";
 
 // Normalize cleaning names 
 function normalize(str) {
@@ -129,9 +130,49 @@ function inferCategory(fileCategory, symbolName, baseName, description, keywords
   const nameText = nameParts.join(" ").toLowerCase();
   const nameWords = nameParts.flatMap(wordsFromName);
   const compact = normalize(parts.join(""));
+  const categoryCompact = normalize(fileCategory || "");
   const fileCompact = normalize(svgFile || "");
   const symbolLower = (symbolName || "").toLowerCase();
   const baseLower = (baseName || "").toLowerCase();
+
+  if (categoryCompact.startsWith("amplifier") || categoryCompact.startsWith("rfamplifier")) return "Amplifier";
+  if (categoryCompact === "analogadc") return "ADC";
+  if (categoryCompact === "analogdac") return "DAC";
+  if (categoryCompact.startsWith("battery")) return "Battery";
+  if (categoryCompact.startsWith("comparator")) return "Comparator";
+  if (categoryCompact.startsWith("connector") || categoryCompact.startsWith("jumper")) return "Connector";
+  if (categoryCompact.startsWith("diode")) return "Diode";
+  if (categoryCompact.startsWith("driverled") || categoryCompact.startsWith("led") || categoryCompact.startsWith("display")) return "LED";
+  if (categoryCompact.startsWith("drivermotor") || categoryCompact.startsWith("motor")) return "Motor";
+  if (categoryCompact.startsWith("driverrelay") || categoryCompact.startsWith("relay")) return "Relay";
+  if (categoryCompact.startsWith("logic") || categoryCompact.startsWith("buffer") || /^74|^4xxx/.test(categoryCompact)) return "Logic";
+  if (categoryCompact.startsWith("mcu") || categoryCompact.startsWith("cpu") || categoryCompact.startsWith("dsp")) return "Microcontroller";
+  if (categoryCompact.startsWith("memory")) return "Memory";
+  if (categoryCompact.startsWith("oscillator") || categoryCompact.startsWith("timer")) return "Oscillator";
+  if (categoryCompact === "power" || categoryCompact.startsWith("powermanagement") || categoryCompact.startsWith("powerprotection")) return "Power";
+  if (categoryCompact.startsWith("regulator") || categoryCompact.startsWith("referencevoltage") || categoryCompact.startsWith("converter")) return "Regulator";
+  if (categoryCompact.startsWith("sensor")) return "Sensor";
+  if (categoryCompact.startsWith("switch") || categoryCompact.startsWith("analogswitch") || categoryCompact.startsWith("rfswitch")) return "Switch";
+  if (categoryCompact.startsWith("transformer")) return "Transformer";
+  if (categoryCompact.startsWith("transistor") || categoryCompact.startsWith("driverfet")) return "Transistor";
+
+  if (/^[+-]?\d+(?:\.\d+)?v[a-z]*$/.test(fileCompact) || /^(gnd|earth|vcc|vdd|vss|vdc|vsw)$/.test(fileCompact)) {
+    return "Power";
+  }
+  if (/^(batt|bat|battery|cell)/.test(fileCompact)) return "Battery";
+  if (/^(1n|bav|bas|bat\d|bzt|smaj|smbj|smcj|sod|tvs|zener)/.test(fileCompact)) return "Diode";
+  if (/^(74|54|cd4|he[cf]4|mc14|tc4|sn74)/.test(fileCompact)) return "Logic";
+  if (/^(78|79)\d{2}/.test(fileCompact) || /^(ams1117|lm1117|lm317|lm337|ldo|buck|boost)/.test(fileCompact)) return "Regulator";
+  if (/^(2n|bc|bd|bss|bs|irf|irfz|irl|ao\d|fdn|fet|mosfet|igbt)/.test(fileCompact)) return "Transistor";
+  if (/^(xtal|crystal|osc|resonator|resomator|tcxo|vcxo)/.test(fileCompact)) return "Oscillator";
+  if (/^(conn|connector|jst|usb|rj|jack|header|pinheader|terminal|socket|plug)/.test(fileCompact)) return "Connector";
+  if (/^(sw|switch|button|pushbutton|dip)/.test(fileCompact)) return "Switch";
+  if (/^(relay|rel|k\d+)/.test(fileCompact)) return "Relay";
+  if (/^(fuse|polyfuse|ptc)/.test(fileCompact)) return "Fuse";
+  if (/^(mcu|stm32|stm8|atmega|attiny|atxmega|pic|esp32|esp8266|nrf|samd|same|rp2040)/.test(fileCompact)) return "Microcontroller";
+  if (/^(eeprom|eprom|flash|sram|dram|fram|memory|rom|ram)/.test(fileCompact)) return "Memory";
+  if (/^(adc|ad[cs]|mcp3\d|ads\d)/.test(fileCompact)) return "ADC";
+  if (/^(dac|mcp47|mcp48)/.test(fileCompact)) return "DAC";
 
   if (/^r(_|$)/.test(symbolLower) || /^r(_|$)/.test(baseLower)) return "Resistor";
   if (includesAny(nameText, nameWords, [
@@ -190,7 +231,40 @@ function inferCategory(fileCategory, symbolName, baseName, description, keywords
   if (/\b(logic|gate|flip[\s-]?flop|latch|counter|multiplexer|decoder|encoder)\b/.test(text)) return "Logic";
   if (/\b(amplifiers?|buffer)\b/.test(text)) return "Amplifier";
 
-  return fileCategory;
+  return fileCategory === "SVG" ? "Component" : fileCategory;
+}
+
+function unitForCategory(category) {
+  const units = {
+    Resistor: "Ohm",
+    Capacitor: "Farad",
+    Inductor: "Henry",
+    OpAmp: "Decibel",
+    Register: "Bit",
+    Regulator: "Volt",
+    Comparator: "Volt",
+    ADC: "Bit",
+    DAC: "Bit",
+    Diode: "Volt",
+    LED: "Volt",
+    Transistor: "Ampere",
+    Connector: "Pins",
+    Switch: "Ampere",
+    Relay: "Volt",
+    Transformer: "Watt",
+    Fuse: "Ampere",
+    Oscillator: "Hertz",
+    Motor: "RPM",
+    Battery: "Volt",
+    Power: "Volt",
+    Sensor: "Unit",
+    Microcontroller: "Megahertz",
+    Memory: "Megabyte",
+    Logic: "Volt",
+    Amplifier: "Decibel",
+  };
+
+  return units[category] || "Unit";
 }
 
 function unique(values) {
@@ -278,7 +352,6 @@ function inferCompany(fileCategory, symbolName, description, keywords, datasheet
 
 function buildTags({
   category,
-  deviceType,
   company,
   symbolName,
   baseName,
@@ -293,11 +366,11 @@ function buildTags({
 }) {
   const tags = [
     category,
-    deviceType,
     company,
     mountType,
     packageType,
     pinCount ? `${pinCount} pins` : null,
+    unitForCategory(category) ? `unit ${unitForCategory(category)}` : null,
     voltage ? `voltage ${voltage}` : null,
     current ? `current ${current}` : null,
     power ? `power ${power}` : null,
@@ -342,7 +415,7 @@ db.exec(`
     symbol_name TEXT,
     base_name TEXT,
     category TEXT,
-    device_type TEXT,
+    unit TEXT,
     company TEXT,
     package TEXT,
     pin_count TEXT,
@@ -363,7 +436,7 @@ const requiredColumns = {
   symbol_name: "TEXT",
   base_name: "TEXT",
   category: "TEXT",
-  device_type: "TEXT",
+  unit: "TEXT",
   company: "TEXT",
   package: "TEXT",
   pin_count: "TEXT",
@@ -398,7 +471,7 @@ const insert = db.prepare(`
     symbol_name,
     base_name,
     category,
-    device_type,
+    unit,
     company,
     package,
     pin_count,
@@ -446,7 +519,6 @@ const insertMany = db.transaction((symbols, fileName) => {
 
       // CATEGORY
       const fileCategory = fileName.replace(".kicad_sym", "");
-      const device_type = fileCategory;
 
       // FOOTPRINT
       const footprint = getProperty(block, "Footprint");
@@ -483,7 +555,7 @@ const insertMany = db.transaction((symbols, fileName) => {
       if (extractedPower) power = extractedPower;
 
       // LICENSE
-      const license = "Open/Generic";
+      const license = KICAD_LIBRARY_LICENSE;
 
       //   SVG MATCHING
 
@@ -523,6 +595,7 @@ const insertMany = db.transaction((symbols, fileName) => {
         keywords,
         bestMatch
       );
+      const unit = unitForCategory(category);
       const company = inferCompany(
         fileCategory,
         symbol_name,
@@ -533,7 +606,6 @@ const insertMany = db.transaction((symbols, fileName) => {
 
       const tags = buildTags({
         category,
-        deviceType: device_type,
         company,
         symbolName: symbol_name,
         baseName: base_name,
@@ -552,7 +624,7 @@ const insertMany = db.transaction((symbols, fileName) => {
         symbol_name,
         base_name,
         category,
-        device_type,
+        unit,
         company,
         packageType,
         pin_count ? pin_count.toString() : null,
@@ -590,12 +662,13 @@ const insertSvgOnly = db.transaction((svgs) => {
       null,
       svg.file
     );
+    const unit = unitForCategory(category);
 
     insert.run(
       symbolName,
       symbolName,
       category,
-      "SVG",
+      unit,
       null,
       null,
       null,
@@ -608,7 +681,6 @@ const insertSvgOnly = db.transaction((svgs) => {
       null,
       buildTags({
         category,
-        deviceType: "SVG",
         company: null,
         symbolName,
         baseName: symbolName,
@@ -621,7 +693,7 @@ const insertSvgOnly = db.transaction((svgs) => {
         current: null,
         power: null,
       }),
-      "Open/Generic",
+      KICAD_LIBRARY_LICENSE,
       `svgs/${svg.file}`
     );
 

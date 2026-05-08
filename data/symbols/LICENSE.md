@@ -1,4 +1,4 @@
-### KiCad Libraries License
+  ### KiCad Libraries License
 
 The KiCad libraries are licensed under the [Creative Commons CC-BY-SA 4.0 License](https://creativecommons.org/licenses/by-sa/4.0/legalcode), with the following exception:
 

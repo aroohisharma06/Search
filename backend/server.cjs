@@ -32,7 +32,7 @@ app.use("/svgs", express.static(svgFolder));
 const pngFolder = path.join(__dirname, "../data/images");
 app.use("/images", express.static(pngFolder));
 
-// STEP files (NEW )
+// STEP files 
 const stepFolder = path.join(__dirname, "../data/ship_symbols");
 app.use("/step", express.static(stepFolder));
 
@@ -50,28 +50,270 @@ function normalizeCategoryQuery(query) {
     .replace(/[^a-z0-9]/g, "");
 
   const aliases = {
+    adc: "ADC",
+    adcs: "ADC",
+    amplifier: "Amplifier",
+    amplifiers: "Amplifier",
+    battery: "Battery",
+    batteries: "Battery",
     resistor: "Resistor",
     resistors: "Resistor",
+    ohm: "Resistor",
+    ohms: "Resistor",
+    resistance: "Resistor",
     capactor: "Capacitor",
     capacator: "Capacitor",
     capacitor: "Capacitor",
     capacitors: "Capacitor",
     condenser: "Capacitor",
+    farad: "Capacitor",
+    farads: "Capacitor",
     indactor: "Inductor",
     indactors: "Inductor",
     inductor: "Inductor",
     inductors: "Inductor",
+    comparator: "Comparator",
+    comparators: "Comparator",
+    connector: "Connector",
+    connectors: "Connector",
+    dac: "DAC",
+    dacs: "DAC",
+    diode: "Diode",
+    diodes: "Diode",
+    fuse: "Fuse",
+    fuses: "Fuse",
+    led: "LED",
+    leds: "LED",
+    logic: "Logic",
+    memory: "Memory",
+    microcontroller: "Microcontroller",
+    microcontrollers: "Microcontroller",
+    motor: "Motor",
+    motors: "Motor",
     opam: "OpAmp",
     opams: "OpAmp",
     opamp: "OpAmp",
     opamps: "OpAmp",
     operationalamplifier: "OpAmp",
+    oscillator: "Oscillator",
+    oscillators: "Oscillator",
+    power: "Power",
+    register: "Register",
+    registers: "Register",
+    regulator: "Regulator",
+    regulators: "Regulator",
+    relay: "Relay",
+    relays: "Relay", 
+    switch: "Switch",
+    switches: "Switch",
+    transistor: "Transistor",
+    transistors: "Transistor",
+    transformer: "Transformer",
+    transformers: "Transformer",
   };
 
   return aliases[normalized] || query;
 }
 
-/* ---------- Ship Parts (LOCAL DATA) ---------- */
+function unitForCategory(category) {
+  const units = {
+    Resistor: "Ohm",
+    Capacitor: "Farad",
+    Inductor: "Henry",
+    OpAmp: "Decibel",
+    Register: "Bit",
+    Regulator: "Volt",
+    Comparator: "Volt",
+    ADC: "Bit",
+    DAC: "Bit",
+    Diode: "Volt",
+    LED: "Volt",
+    Transistor: "Ampere",
+    Connector: "Pins",
+    Switch: "Ampere",
+    Relay: "Volt",
+    Transformer: "Watt",
+    Fuse: "Ampere",
+    Oscillator: "Hertz",
+    Motor: "RPM",
+    Battery: "Volt",
+    Power: "Volt",
+    Sensor: "Unit",
+    Microcontroller: "Megahertz",
+    Memory: "Megabyte",
+    Logic: "Volt",
+    Amplifier: "Decibel",
+  };
+
+  return units[category] || "Unit";
+}
+
+function escapeLike(value) {
+  return String(value || "").replace(/([_%\\])/g, "\\$1");
+}
+
+function parameterSearchTerms(query) {
+  const text = String(query || "").trim();
+  const lower = text.toLowerCase();
+  const compact = lower.replace(/\s+/g, "");
+  const terms = [text];
+
+  const addTerms = (...values) => {
+    values.forEach((value) => {
+      if (value && !terms.some((term) => term.toLowerCase() === value.toLowerCase())) {
+        terms.push(value);
+      }
+    });
+  };
+
+  if (/(^|\d|\s)(m|k|meg)?(ohm|ohms|\u03a9)\b/i.test(text) || lower.includes("ohm")) {
+    addTerms("ohm", "ohms", "resistor", "resistance");
+  }
+
+  if (/\d+(?:\.\d+)?\s*(p|n|u|\u00b5|m)?f\b/i.test(compact) || /farads?\b/i.test(text)) {
+    addTerms("farad", "farads", "capacitor", "capacitance");
+  }
+
+  if (/\d+(?:\.\d+)?\s*(u|\u00b5|m)?h\b/i.test(compact) || /henr(?:y|ies)\b/i.test(text)) {
+    addTerms("henry", "henries", "inductor", "inductance");
+  }
+
+  if (/\d+(?:\.\d+)?\s*db\b/i.test(compact) || /\bdb\b/i.test(text)) {
+    addTerms("dB", "decibel", "gain", "attenuation", "amplifier", "filter");
+  }
+
+  return terms; 
+}
+
+const licenseFilePath = path.join(__dirname, "../data/symbols/LICENSE.md");
+
+function plainMarkdown(text) {
+  return String(text || "")
+    .replace(/\[([^\]]+)\]\([^)]+\)/g, "$1")
+    .replace(/[_*`#>-]/g, "")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function readLicenseInfo() {
+  const fallbackAnalysis = {
+    license_name: "Creative Commons CC-BY-SA 4.0 with KiCad exception",
+    license_type: "CC-BY-SA-4.0 with KiCad exception",
+    category: "Share-alike content license with KiCad design exception",
+    commercial_use: true,
+    private_use: true,
+    redistribution:
+      "Redistributed KiCad library collections, including modified collections, must be shared under the same license and retain attribution/license documents.",
+    attribution_required: true,
+  };
+
+  const fallback = {
+    title: "KiCad Libraries License",
+    name: "Creative Commons CC-BY-SA 4.0 with KiCad exception",
+    license_type: "CC-BY-SA-4.0 with KiCad exception",
+    url: "https://creativecommons.org/licenses/by-sa/4.0/legalcode",
+    source_file: "data/symbols/LICENSE.md",
+    summary:
+      "KiCad library data can be used in commercial, closed, and non-commercial designs without requiring design files to use the same license.",
+    attribution_required: true,
+    attribution_requirements:
+      "Attribution/license documents must be retained when redistributing KiCad libraries or modified library collections. Attribution is not required inside designs that merely use the library data.",
+    exception:
+      "The KiCad exception waives share-alike requirements for electronic designs and generated files that use the library data.",
+    redistribution:
+      "Redistributed KiCad library collections, including modified collections, must be shared under the same license and retain attribution/license documents.",
+    warranty: "Provided without warranty of any kind.",
+    license_analysis: fallbackAnalysis,
+    full_text: "",
+  };
+
+  try {
+    const fullText = fs.readFileSync(licenseFilePath, "utf8");
+    const lines = fullText.split(/\r?\n/).map((line) => line.trim());
+    const title = plainMarkdown(lines.find((line) => line.startsWith("###")) || fallback.title);
+    const licenseLine = lines.find((line) => line.includes("Creative Commons CC-BY-SA 4.0 License"));
+    const exceptionLine = lines.find((line) => line.includes("waives article 3"));
+    const summaryLine = lines.find((line) => line.includes("free use of library data"));
+    const redistributionLine = lines.find((line) => line.includes("if you wish to redistribute"));
+    const warrantyLine = lines.find((line) => line.includes("provided without warranty"));
+    const commercialUse = fullText.includes("commercial, closed, and non-commercial projects without restriction");
+    const privateUse = fullText.includes("your own projects without the obligation to share your project files");
+    const attributionRequired = fullText.includes("retain attribution information");
+    const licenseName = licenseLine
+      ? "Creative Commons CC-BY-SA 4.0 with KiCad exception"
+      : fallback.name;
+    const licenseType = licenseLine
+      ? "CC-BY-SA-4.0 with KiCad exception"
+      : fallback.license_type;
+    const redistribution = plainMarkdown(redistributionLine) || fallback.redistribution;
+
+    return {
+      ...fallback,
+      title,
+      name: licenseName,
+      license_type: licenseType,
+      summary: plainMarkdown(summaryLine) || fallback.summary,
+      exception: plainMarkdown(exceptionLine) || fallback.exception,
+      redistribution,
+      warranty: plainMarkdown(warrantyLine) || fallback.warranty,
+      license_analysis: {
+        license_name: licenseName,
+        license_type: licenseType,
+        category: exceptionLine
+          ? "Share-alike content license with KiCad design exception"
+          : fallbackAnalysis.category,
+        commercial_use: commercialUse || fallbackAnalysis.commercial_use,
+        private_use: privateUse || fallbackAnalysis.private_use,
+        redistribution,
+        attribution_required: attributionRequired || fallbackAnalysis.attribution_required,
+      },
+      full_text: fullText,
+    };
+  } catch (error) {
+    console.log("License read error:", error.message);
+    return fallback;
+  }
+}
+
+const kicadLicenseInfo = readLicenseInfo();
+
+function licenseInfoForSymbol(row = {}) {
+  const license = String(row.license || "").trim();
+  const hasSvgAsset = Boolean(row.svg_path || row.svg_file);
+  const isExplicitKicadLicense =
+    license === kicadLicenseInfo.name || license === kicadLicenseInfo.license_type;
+  const isLegacyKicadSvgLicense = license === "Open/Generic" && hasSvgAsset;
+
+  if (isExplicitKicadLicense || isLegacyKicadSvgLicense) {
+    return kicadLicenseInfo;
+  }
+
+  return {
+    title: "Symbol License",
+    name: license || "Not specified",
+    license_type: license || "Not specified",
+    url: "",
+    source_file: "",
+    summary: "",
+    attribution_required: false,
+    attribution_requirements: "No attribution requirements were found in the backend metadata for this SVG.",
+    exception: "",
+    redistribution: "",
+    warranty: "",
+    license_analysis: {
+      license_name: license || "Not specified",
+      license_type: license || "Not specified",
+      category: "Unknown",
+      commercial_use: false,
+      private_use: false,
+      redistribution: "",
+      attribution_required: false,
+    },
+    full_text: "",
+  };
+}
+
+/* ---------- Ship Parts  ---------- */
 
 const shipParts = [
   {
@@ -336,21 +578,16 @@ function publicSvgUrl(row) {
 }
 
 function normalizeDbRow(row) {
+  const licenseInfo = licenseInfoForSymbol(row);
+  const category = row.category || "";
+
   return {
     id: row.id ?? row.kid_symbol,
-    kid_symbol: row.kid_symbol ?? row.id,
     symbol_name: row.symbol_name || row.name || row.base_name || "",
-    name: row.name || "",
-    base_name: row.base_name || "",
-    name_and_path: row.name_and_path || "",
-    kicad_file: row.kicad_file || "",
-    svg_file: row.svg_file || "",
-    svg_path: row.svg_path || "",
     svg_url: publicSvgUrl(row),
     company: row.company || "",
-    category: row.category || "",
-    subcategory: row.subcategory || "",
-    device_type: row.device_type || "",
+    category,
+    unit: row.unit || unitForCategory(category),
     description: row.description || "",
     keywords: row.keywords || "",
     package: row.package || "",
@@ -363,10 +600,10 @@ function normalizeDbRow(row) {
     current: ratingValue(row.current, row.current_rating),
     power: ratingValue(row.power, row.power_rating),
     datasheet: row.datasheet || "",
-    simulation_available: Boolean(row.simulation_available),
-    simulation_parameters: row.simulation_parameters || "",
     tags: rowTags(row),
-    license: row.license || "Open/Generic",
+    license: licenseInfo.name,
+    license_info: licenseInfo,
+    license_analysis: licenseInfo.license_analysis,
   };
 }
 
@@ -375,7 +612,7 @@ function normalizeShipPart(item) {
 
   return {
     company: "",
-    device_type: "Ship Part",
+    unit: "",
     package: "",
     pin_count: "",
     mount_type: "",
@@ -387,245 +624,34 @@ function normalizeShipPart(item) {
     power: "",
     datasheet: "",
     description: "",
-    simulation_available: false,
     tags: [],
     license: "Local/Open",
+    license_info: {
+      title: "Local Ship Part Asset",
+      name: "Local/Open",
+      license_type: "Local/Open",
+      url: "",
+      source_file: "",
+      summary: "This asset is served from the local ship parts dataset.",
+      attribution_required: false,
+      attribution_requirements: "No attribution requirements were found in the backend metadata for this local asset.",
+      exception: "",
+      redistribution: "Check the source model before redistributing outside this app.",
+      warranty: "Provided without warranty of any kind.",
+      license_analysis: {
+        license_name: "Local/Open",
+        license_type: "Local/Open",
+        category: "Local asset",
+        commercial_use: false,
+        private_use: true,
+        redistribution: "Check the source model before redistributing outside this app.",
+        attribution_required: false,
+      },
+      full_text: "",
+    },
     ...item,
     step_url: stepFile ? fileUrl("/step", stepFile) : item.step_url || null,
   };
-}
-
-function isMissingSymbolInfo(item) {
-  const missing = (value) =>
-    value === undefined ||
-    value === null ||
-    value === "" ||
-    value === 0 ||
-    value === "SVG" ||
-    value === "SVG image from svgs folder";
-
-  return (
-    missing(item.description) ||
-    missing(item.category) ||
-    missing(item.device_type) ||
-    missing(item.tags) ||
-    (Array.isArray(item.tags) && item.tags.length === 0)
-  );
-}
-
-function cleanLlmString(value) {
-  return typeof value === "string" ? value.trim() : "";
-}
-
-function normalizeLlmInfo(info, fallbackName) {
-  const tags = Array.isArray(info.tags)
-    ? info.tags.map(cleanLlmString).filter(Boolean).slice(0, 8)
-    : [];
-
-  return {
-    symbol_name: cleanLlmString(info.symbol_name) || fallbackName,
-    company: cleanLlmString(info.company),
-    category: cleanLlmString(info.category) || "Electronic Symbol",
-    subcategory: cleanLlmString(info.subcategory),
-    device_type: cleanLlmString(info.device_type) || "Component",
-    description:
-      cleanLlmString(info.description) ||
-      `Likely electronic schematic symbol for ${fallbackName}.`,
-    keywords: cleanLlmString(info.keywords),
-    package: cleanLlmString(info.package),
-    pin_count: cleanLlmString(info.pin_count),
-    mount_type: cleanLlmString(info.mount_type),
-    voltage_rating: cleanLlmString(info.voltage_rating),
-    current_rating: cleanLlmString(info.current_rating),
-    power_rating: cleanLlmString(info.power_rating),
-    datasheet: cleanLlmString(info.datasheet),
-    tags: tags.length ? tags : ["AI inferred", fallbackName].filter(Boolean),
-    license: "AI inferred",
-    llm_generated: true,
-  };
-}
-
-function inferSymbolInfoFromName(name, svgText = "") {
-  const rawName = String(name || "Unknown SVG").replace(/\.svg$/i, "");
-  const compactName = rawName.toLowerCase();
-  const text = `${compactName} ${svgText.toLowerCase()}`;
-
-  const rules = [
-    ["resistor", /(^|[_\-\s])r(es)?\d*|resistor|ohm/, "Passive", "Resistor"],
-    ["capacitor", /(^|[_\-\s])c\d*|capacitor|capacit/, "Passive", "Capacitor"],
-    ["inductor", /(^|[_\-\s])l\d*|inductor|coil/, "Passive", "Inductor"],
-    ["diode", /diode|led|zener|schottky|rectifier/, "Semiconductor", "Diode"],
-    ["transistor", /transistor|mosfet|bjt|fet|igbt/, "Semiconductor", "Transistor"],
-    ["connector", /conn|connector|header|jack|usb|terminal/, "Connector", "Connector"],
-    ["amplifier", /opamp|amplifier|amp|comparator/, "Analog", "Amplifier"],
-    ["microcontroller", /mcu|microcontroller|stm32|atmega|pic\d|esp32|nrf/, "IC", "Microcontroller"],
-    ["power", /power|vcc|gnd|\+\d+v|-\d+v|battery/, "Power", "Power Symbol"],
-  ];
-
-  const match = rules.find(([, regex]) => regex.test(text));
-  const category = match ? match[2] : "Electronic Symbol";
-  const deviceType = match ? match[3] : "Component";
-
-  return normalizeLlmInfo(
-    {
-      symbol_name: rawName,
-      category,
-      device_type: deviceType,
-      description: `Likely ${deviceType.toLowerCase()} schematic symbol inferred from the SVG filename and drawing content.`,
-      keywords: [rawName, category, deviceType].join(", "),
-      tags: ["AI inferred", category, deviceType],
-    },
-    rawName,
-  );
-}
-
-function responseText(responseJson) {
-  if (typeof responseJson.output_text === "string") return responseJson.output_text;
-
-  for (const output of responseJson.output || []) {
-    for (const content of output.content || []) {
-      if (content.type === "output_text" && typeof content.text === "string") {
-        return content.text;
-      }
-    }
-  }
-
-  return "";
-}
-
-function findSvgFile(input) {
-  const candidates = [
-    input.svg_file,
-    input.svg_path,
-    input.svg_url,
-    input.symbol_name ? `${input.symbol_name}.svg` : "",
-  ]
-    .filter(Boolean)
-    .map((value) => path.basename(String(value)));
-
-  for (const fileName of candidates) {
-    const filePath = path.resolve(svgFolder, fileName);
-    if (filePath.startsWith(svgFolder) && fs.existsSync(filePath)) {
-      return filePath;
-    }
-  }
-
-  return "";
-}
-
-async function generateSvgInfoWithLlm(input) {
-  const fallbackName =
-    cleanLlmString(input.symbol_name) ||
-    cleanLlmString(input.svg_file).replace(/\.svg$/i, "") ||
-    "Unknown SVG";
-  const svgFile = findSvgFile(input);
-  const svgText = svgFile ? fs.readFileSync(svgFile, "utf8").slice(0, 12000) : "";
-  const heuristicInfo = inferSymbolInfoFromName(fallbackName, svgText);
-
-  if (!process.env.OPENAI_API_KEY) {
-    return {
-      ...heuristicInfo,
-      llm_source: "local-inference",
-      llm_note: "Set OPENAI_API_KEY on the backend to enable live LLM enrichment.",
-    };
-  }
-
-  const schema = {
-    type: "object",
-    additionalProperties: false,
-    required: [
-      "symbol_name",
-      "company",
-      "category",
-      "subcategory",
-      "device_type",
-      "description",
-      "keywords",
-      "package",
-      "pin_count",
-      "mount_type",
-      "voltage_rating",
-      "current_rating",
-      "power_rating",
-      "datasheet",
-      "tags",
-    ],
-    properties: {
-      symbol_name: { type: "string" },
-      company: { type: "string" },
-      category: { type: "string" },
-      subcategory: { type: "string" },
-      device_type: { type: "string" },
-      description: { type: "string" },
-      keywords: { type: "string" },
-      package: { type: "string" },
-      pin_count: { type: "string" },
-      mount_type: { type: "string" },
-      voltage_rating: { type: "string" },
-      current_rating: { type: "string" },
-      power_rating: { type: "string" },
-      datasheet: { type: "string" },
-      tags: { type: "array", items: { type: "string" } },
-    },
-  };
-
-  try {
-    const llmResponse = await fetch("https://api.openai.com/v1/responses", {
-      method: "POST",
-      headers: {
-        Authorization: `Bearer ${process.env.OPENAI_API_KEY}`,
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({
-        model: process.env.OPENAI_MODEL || "gpt-4.1-mini",
-        instructions:
-          "You identify electronic schematic SVG symbols. Return concise metadata only. If a value is unknown, use an empty string instead of guessing exact electrical ratings or datasheet URLs.",
-        input: [
-          {
-            role: "user",
-            content: [
-              {
-                type: "input_text",
-                text: JSON.stringify({
-                  known: input,
-                  svg_file: svgFile ? path.basename(svgFile) : "",
-                  svg_excerpt: svgText,
-                }),
-              },
-            ],
-          },
-        ],
-        text: {
-          format: {
-            type: "json_schema",
-            name: "svg_symbol_info",
-            strict: true,
-            schema,
-          },
-        },
-      }),
-    });
-
-    if (!llmResponse.ok) {
-      throw new Error(`OpenAI request failed: ${llmResponse.status}`);
-    }
-
-    const llmJson = await llmResponse.json();
-    const parsed = JSON.parse(responseText(llmJson));
-
-    return {
-      ...heuristicInfo,
-      ...normalizeLlmInfo(parsed, fallbackName),
-      llm_source: "openai",
-    };
-  } catch (error) {
-    console.log("LLM SVG info error:", error.message);
-    return {
-      ...heuristicInfo,
-      llm_source: "local-inference",
-      llm_note: "Live LLM enrichment failed; returned local filename/SVG inference.",
-    };
-  }
 }
 
 /* ---------- Search API ---------- */
@@ -634,27 +660,50 @@ app.get("/api/search", (req, res) => {
   const q = req.query.q || "";
 
   const queryText = normalizeCategoryQuery(q);
-  const escapedQuery = queryText.replace(/([_%\\])/g, "\\$1");
-  const search = `%${escapedQuery}%`;
+  const searchTerms = parameterSearchTerms(queryText);
+  const searchColumns = [
+    "kid_symbol",
+    "symbol_name",
+    
+    "company",
+    "category",
+    "unit",
+    
+    "description",
+    "package",
+    "keywords",
+    "tags",
+    "voltage",
+    "current",
+    "power",
+    "contents",
+    "license",
+  ];
+  const searchClauses = searchTerms
+    .map(() =>
+      searchColumns
+        .map((column) => `LOWER(${column}) LIKE LOWER(?) ESCAPE '\\'`)
+        .join("\n      OR "),
+    )
+    .join("\n      OR ");
+  const searchParams = searchTerms.flatMap((term) =>
+    searchColumns.map(() => `%${escapeLike(term)}%`),
+  );
+  const search = `%${escapeLike(queryText)}%`;
   const exactCategory = queryText.trim();
 
   const sql = `
     SELECT *
     FROM symbols
     WHERE (
-      LOWER(symbol_name) LIKE LOWER(?) ESCAPE '\\'
-      OR LOWER(base_name) LIKE LOWER(?) ESCAPE '\\'
-      OR LOWER(company) LIKE LOWER(?) ESCAPE '\\'
-      OR LOWER(category) LIKE LOWER(?) ESCAPE '\\'
-      OR LOWER(device_type) LIKE LOWER(?) ESCAPE '\\'
-      OR LOWER(description) LIKE LOWER(?) ESCAPE '\\'
-      OR LOWER(package) LIKE LOWER(?) ESCAPE '\\'
+      ${searchClauses}
     )
     ORDER BY
       CASE
         WHEN LOWER(category) = LOWER(?) THEN 0
-        WHEN LOWER(category) LIKE LOWER(?) ESCAPE '\\' THEN 1
-        WHEN LOWER(symbol_name) LIKE LOWER(?) ESCAPE '\\' THEN 2
+        WHEN CAST(kid_symbol AS TEXT) = ? THEN 1
+        WHEN LOWER(category) LIKE LOWER(?) ESCAPE '\\' THEN 2
+        WHEN LOWER(symbol_name) LIKE LOWER(?) ESCAPE '\\' THEN 3
         ELSE 3
       END,
       symbol_name
@@ -664,13 +713,8 @@ app.get("/api/search", (req, res) => {
   db.all(
     sql,
     [
-      search,
-      search,
-      search,
-      search,
-      search,
-      search,
-      search,
+      ...searchParams,
+      exactCategory,
       exactCategory,
       search,
       search,
@@ -699,14 +743,37 @@ app.get("/api/search", (req, res) => {
   );
 });
 
-app.post("/api/llm/svg-info", async (req, res) => {
-  try {
-    const info = await generateSvgInfoWithLlm(req.body || {});
-    return res.json(info);
-  } catch (error) {
-    console.log("SVG LLM endpoint error:", error.message);
-    return res.status(500).json({ error: "Unable to generate SVG info" });
-  }
+app.get("/api/license", (req, res) => {
+  res.json(kicadLicenseInfo);
+});
+
+app.get("/api/svg-licenses", (req, res) => {
+  db.all(
+    "SELECT kid_symbol, symbol_name, license FROM symbols ORDER BY symbol_name",
+    [],
+    (err, rows) => {
+      if (err) {
+        console.log("SVG license list error:", err.message);
+        return res.status(500).json({ error: "Database error" });
+      }
+
+      return res.json(
+        rows.map((row) => {
+          const licenseInfo = licenseInfoForSymbol(row);
+
+          return {
+            id: row.kid_symbol,
+            symbol_name: row.symbol_name || "",
+            license: licenseInfo.name,
+            license_type: licenseInfo.license_type,
+            license_analysis: licenseInfo.license_analysis,
+            attribution_required: licenseInfo.attribution_required,
+            attribution_requirements: licenseInfo.attribution_requirements,
+          };
+        }),
+      );
+    },
+  );
 });
 
 app.get("/api/symbol/:id", (req, res) => {
@@ -717,7 +784,7 @@ app.get("/api/symbol/:id", (req, res) => {
     return res.json(normalizeShipPart(shipPart));
   }
 
-  db.get("SELECT * FROM symbols WHERE kid_symbol = ? LIMIT 1", [id], async (err, row) => {
+  db.get("SELECT * FROM symbols WHERE kid_symbol = ? LIMIT 1", [id], (err, row) => {
     if (err) {
       console.log("Symbol detail error:", err.message);
       return res.status(500).json({ error: "Database error" });
@@ -727,14 +794,7 @@ app.get("/api/symbol/:id", (req, res) => {
       return res.status(404).json({ error: "Symbol not found" });
     }
 
-    const normalized = normalizeDbRow(row);
-
-    if (!isMissingSymbolInfo(normalized)) {
-      return res.json(normalized);
-    }
-
-    const llmInfo = await generateSvgInfoWithLlm(normalized);
-    return res.json({ ...normalized, ...llmInfo });
+    return res.json(normalizeDbRow(row));
   });
 });
 
