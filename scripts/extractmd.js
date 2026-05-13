@@ -142,6 +142,7 @@ function inferCategory(fileCategory, symbolName, baseName, description, keywords
   if (categoryCompact.startsWith("comparator")) return "Comparator";
   if (categoryCompact.startsWith("connector") || categoryCompact.startsWith("jumper")) return "Connector";
   if (categoryCompact.startsWith("diode")) return "Diode";
+  if (/\b(capacitors?|capacitance|farads?)\b/.test(text)) return "Capacitor";
   if (categoryCompact.startsWith("driverled") || categoryCompact.startsWith("led") || categoryCompact.startsWith("display")) return "LED";
   if (categoryCompact.startsWith("drivermotor") || categoryCompact.startsWith("motor")) return "Motor";
   if (categoryCompact.startsWith("driverrelay") || categoryCompact.startsWith("relay")) return "Relay";
@@ -203,6 +204,7 @@ function inferCategory(fileCategory, symbolName, baseName, description, keywords
     "choke",
     "ferrite"
   ]) || /^l\d*$/.test(fileCompact)) return "Inductor";
+  if (/\b(inductors?|inductance|chokes?|coils?|ferrite)\b/.test(text)) return "Inductor";
 
   if (/\b(op[\s-]?amp|operational amplifier|instrumentation amplifier)\b/.test(text) || compact.includes("opamp")) {
     return "OpAmp";
@@ -293,6 +295,118 @@ function extractRating(text, kind) {
   return match ? `${match[1]}${match[2]}` : null;
 }
 
+function normalizeParameterNumber(value) {
+  const number = Number(value);
+  if (!Number.isFinite(number)) return null;
+  return Number(number.toPrecision(12)).toString();
+}
+
+function parameterKindsForCategory(category) {
+  const kinds = {
+    Resistor: ["resistance"],
+    Capacitor: ["capacitance"],
+    Inductor: ["inductance", "resistance"],
+    Amplifier: ["gain"],
+    OpAmp: ["gain"],
+  };
+
+  return kinds[category] || [];
+}
+
+function normalizeParameterUnit(rawUnit, expectedKinds = []) {
+  const raw = String(rawUnit || "").trim();
+  const compact = raw.replace(/\s+/g, "").replace(/Ω/g, "ohm").replace(/µ/g, "u");
+  const lower = compact.toLowerCase();
+  const expected = new Set(expectedKinds);
+
+  if (/^db$/.test(lower)) return { kind: "gain", label: "Gain", multiplier: 1, unit: "dB" };
+
+  if (/^(v|vac|vdc|volt|volts)$/.test(lower)) return { kind: "voltage", label: "Voltage", multiplier: 1, unit: raw.toUpperCase() === "VAC" || raw.toUpperCase() === "VDC" ? raw.toUpperCase() : "V" };
+  if (/^mv$/.test(lower)) return { kind: "voltage", label: "Voltage", multiplier: 1e-3, unit: "mV" };
+  if (/^kv$/.test(lower)) return { kind: "voltage", label: "Voltage", multiplier: 1e3, unit: "kV" };
+
+  if (/^(a|amp|amps|ampere|amperes)$/.test(lower)) return { kind: "current", label: "Current", multiplier: 1, unit: "A" };
+  if (/^ma$/.test(lower)) return { kind: "current", label: "Current", multiplier: 1e-3, unit: "mA" };
+  if (/^(ua|microa|microamp|microamps|microampere|microamperes)$/.test(lower)) return { kind: "current", label: "Current", multiplier: 1e-6, unit: "uA" };
+  if (/^ka$/.test(lower)) return { kind: "current", label: "Current", multiplier: 1e3, unit: "kA" };
+
+  if (/^(w|watt|watts)$/.test(lower)) return { kind: "power", label: "Power", multiplier: 1, unit: "W" };
+  if (/^mw$/.test(lower)) return { kind: "power", label: "Power", multiplier: 1e-3, unit: "mW" };
+  if (/^kw$/.test(lower)) return { kind: "power", label: "Power", multiplier: 1e3, unit: "kW" };
+
+  if (/^(hz|hertz)$/.test(lower)) return { kind: "frequency", label: "Frequency", multiplier: 1, unit: "Hz" };
+  if (/^khz$/.test(lower)) return { kind: "frequency", label: "Frequency", multiplier: 1e3, unit: "kHz" };
+  if (/^mhz$/.test(lower)) return { kind: "frequency", label: "Frequency", multiplier: 1e6, unit: "MHz" };
+  if (/^ghz$/.test(lower)) return { kind: "frequency", label: "Frequency", multiplier: 1e9, unit: "GHz" };
+
+  if (/^rpm$/.test(lower)) return { kind: "speed", label: "Speed", multiplier: 1, unit: "RPM" };
+  if (/^(bit|bits)$/.test(lower)) return { kind: "resolution", label: "Resolution", multiplier: 1, unit: "bit" };
+  if (/^(b|byte|bytes)$/.test(lower)) return { kind: "memory", label: "Memory", multiplier: 1, unit: "B" };
+  if (/^(kb|kbyte|kbytes|kilobyte|kilobytes)$/.test(lower)) return { kind: "memory", label: "Memory", multiplier: 1e3, unit: "kB" };
+  if (/^(mb|mbyte|mbytes|megabyte|megabytes)$/.test(lower)) return { kind: "memory", label: "Memory", multiplier: 1e6, unit: "MB" };
+  if (/^(gb|gbyte|gbytes|gigabyte|gigabytes)$/.test(lower)) return { kind: "memory", label: "Memory", multiplier: 1e9, unit: "GB" };
+  if (/^(kbit|kbits)$/.test(lower)) return { kind: "memory", label: "Memory", multiplier: 1e3, unit: "kbit" };
+  if (/^(mbit|mbits)$/.test(lower)) return { kind: "memory", label: "Memory", multiplier: 1e6, unit: "Mbit" };
+  if (/^(gbit|gbits)$/.test(lower)) return { kind: "memory", label: "Memory", multiplier: 1e9, unit: "Gbit" };
+
+  if (/^(h|henry|henries)$/.test(lower)) return { kind: "inductance", label: "Inductance", multiplier: 1, unit: "H" };
+  if (/^mh$/.test(lower)) return { kind: "inductance", label: "Inductance", multiplier: 1e-3, unit: "mH" };
+  if (/^(uh|microh|microhenry|microhenries)$/.test(lower)) return { kind: "inductance", label: "Inductance", multiplier: 1e-6, unit: "uH" };
+  if (/^nh$/.test(lower)) return { kind: "inductance", label: "Inductance", multiplier: 1e-9, unit: "nH" };
+
+  if (/^(f|farad|farads)$/.test(lower)) return { kind: "capacitance", label: "Capacitance", multiplier: 1, unit: "F" };
+  if (/^mf$/.test(lower)) return { kind: "capacitance", label: "Capacitance", multiplier: 1e-3, unit: "mF" };
+  if (/^(uf|microf|microfarad|microfarads)$/.test(lower)) return { kind: "capacitance", label: "Capacitance", multiplier: 1e-6, unit: "uF" };
+  if (/^nf$/.test(lower)) return { kind: "capacitance", label: "Capacitance", multiplier: 1e-9, unit: "nF" };
+  if (/^pf$/.test(lower)) return { kind: "capacitance", label: "Capacitance", multiplier: 1e-12, unit: "pF" };
+
+  if (/^(ohm|ohms)$/.test(lower)) return { kind: "resistance", label: "Resistance", multiplier: 1, unit: "Ohm" };
+  if (/^k(ohm|ohms)?$/.test(lower)) return { kind: "resistance", label: "Resistance", multiplier: 1e3, unit: "kOhm" };
+  if (/^(meg|mega)(ohm|ohms)?$/.test(lower)) return { kind: "resistance", label: "Resistance", multiplier: 1e6, unit: "MOhm" };
+  if (/^m(ohm|ohms)$/.test(lower)) {
+    return raw.startsWith("M")
+      ? { kind: "resistance", label: "Resistance", multiplier: 1e6, unit: "MOhm" }
+      : { kind: "resistance", label: "Resistance", multiplier: 1e-3, unit: "mOhm" };
+  }
+  if (lower === "k" && expected.has("resistance")) {
+    return { kind: "resistance", label: "Resistance", multiplier: 1e3, unit: "kOhm" };
+  }
+  if (lower === "m" && expected.has("resistance")) {
+    return raw.startsWith("M")
+      ? { kind: "resistance", label: "Resistance", multiplier: 1e6, unit: "MOhm" }
+      : { kind: "resistance", label: "Resistance", multiplier: 1e-3, unit: "mOhm" };
+  }
+
+  return null;
+}
+
+function extractParameterValues(text, expectedKinds = []) {
+  const values = [];
+  const seen = new Set();
+  const pattern = /(\d+(?:\.\d+)?)\s*([a-zA-ZµΩ]+(?:\s*ohms?)?|Ω)(?=$|[^a-zA-ZµΩ])/g;
+
+  for (const match of String(text || "").matchAll(pattern)) {
+    const unit = normalizeParameterUnit(match[2], expectedKinds);
+    if (!unit) continue;
+
+    const normalized = normalizeParameterNumber(Number(match[1]) * unit.multiplier);
+    if (!normalized) continue;
+
+    const key = `${unit.kind}:${normalized}`;
+    if (seen.has(key)) continue;
+
+    seen.add(key);
+    values.push({
+      label: unit.label,
+      raw: match[0],
+      display: `${match[1]}${unit.unit}`,
+      canonical: key,
+    });
+  }
+
+  return values;
+}
+
 function inferMountType(packageType) {
   if (!packageType) return null;
 
@@ -363,6 +477,7 @@ function buildTags({
   voltage,
   current,
   power,
+  parameterValues = [],
 }) {
   const tags = [
     category,
@@ -374,6 +489,12 @@ function buildTags({
     voltage ? `voltage ${voltage}` : null,
     current ? `current ${current}` : null,
     power ? `power ${power}` : null,
+    ...parameterValues.flatMap(value => [
+      value.raw,
+      value.display,
+      `${value.label} ${value.display}`,
+      value.canonical,
+    ]),
     ...splitWords(symbolName),
     ...splitWords(baseName),
     ...splitWords(description),
@@ -603,6 +724,13 @@ const insertMany = db.transaction((symbols, fileName) => {
         keywords,
         datasheet
       );
+      const parameterValues = extractParameterValues([
+        symbol_name,
+        base_name,
+        description,
+        keywords,
+        packageType,
+      ].filter(Boolean).join(" "), parameterKindsForCategory(category));
 
       const tags = buildTags({
         category,
@@ -617,6 +745,7 @@ const insertMany = db.transaction((symbols, fileName) => {
         voltage,
         current,
         power,
+        parameterValues,
       });
 
       // INSERT
@@ -692,6 +821,7 @@ const insertSvgOnly = db.transaction((svgs) => {
         voltage: null,
         current: null,
         power: null,
+        parameterValues: extractParameterValues(symbolName),
       }),
       KICAD_LIBRARY_LICENSE,
       `svgs/${svg.file}`

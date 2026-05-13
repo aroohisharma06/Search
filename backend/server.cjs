@@ -152,11 +152,223 @@ function escapeLike(value) {
   return String(value || "").replace(/([_%\\])/g, "\\$1");
 }
 
+const CATEGORY_ALIASES = {
+  adc: "ADC",
+  adcs: "ADC",
+  amplifier: "Amplifier",
+  amplifiers: "Amplifier",
+  battery: "Battery",
+  batteries: "Battery",
+  resistor: "Resistor",
+  resistors: "Resistor",
+  resistance: "Resistor",
+  capacitor: "Capacitor",
+  capacitors: "Capacitor",
+  capactor: "Capacitor",
+  capacator: "Capacitor",
+  condenser: "Capacitor",
+  capacitance: "Capacitor",
+  inductor: "Inductor",
+  inductors: "Inductor",
+  indactor: "Inductor",
+  indactors: "Inductor",
+  inductance: "Inductor",
+  choke: "Inductor",
+  chokes: "Inductor",
+  coil: "Inductor",
+  coils: "Inductor",
+  comparator: "Comparator",
+  comparators: "Comparator",
+  connector: "Connector",
+  connectors: "Connector",
+  dac: "DAC",
+  dacs: "DAC",
+  diode: "Diode",
+  diodes: "Diode",
+  fuse: "Fuse",
+  fuses: "Fuse",
+  led: "LED",
+  leds: "LED",
+  logic: "Logic",
+  memory: "Memory",
+  microcontroller: "Microcontroller",
+  microcontrollers: "Microcontroller",
+  motor: "Motor",
+  motors: "Motor",
+  opamp: "OpAmp",
+  opamps: "OpAmp",
+  oscillator: "Oscillator",
+  oscillators: "Oscillator",
+  power: "Power",
+  register: "Register",
+  registers: "Register",
+  regulator: "Regulator",
+  regulators: "Regulator",
+  relay: "Relay",
+  relays: "Relay",
+  switch: "Switch",
+  switches: "Switch",
+  transistor: "Transistor",
+  transistors: "Transistor",
+  transformer: "Transformer",
+  transformers: "Transformer",
+};
+
+const PARAMETER_KIND_BY_CATEGORY = {
+  Resistor: ["resistance"],
+  Capacitor: ["capacitance"],
+  Inductor: ["inductance", "resistance"],
+  Amplifier: ["gain"],
+  OpAmp: ["gain"],
+};
+
+const CATEGORY_SEARCH_TERMS = {
+  Resistor: ["resistor", "resistance", "ohm", "ohms"],
+  Capacitor: ["capacitor", "capacitance", "farad", "farads"],
+  Inductor: ["inductor", "inductance", "choke", "coil", "henry", "henries"],
+  Amplifier: ["amplifier", "gain", "decibel", "dB"],
+  OpAmp: ["opamp", "op amp", "amplifier", "gain", "decibel", "dB"],
+};
+
+function normalizeParameterNumber(value) {
+  const number = Number(value);
+  if (!Number.isFinite(number)) return null;
+  return Number(number.toPrecision(12)).toString();
+}
+
+function normalizeParameterUnit(rawUnit, expectedKinds = []) {
+  const raw = String(rawUnit || "").trim();
+  const compact = raw.replace(/\s+/g, "").replace(/Ω/g, "ohm").replace(/µ/g, "u");
+  const lower = compact.toLowerCase();
+  const expected = new Set(expectedKinds);
+
+  if (/^db$/.test(lower)) return { kind: "gain", label: "Gain", multiplier: 1, unit: "dB" };
+
+  if (/^(v|vac|vdc|volt|volts)$/.test(lower)) return { kind: "voltage", label: "Voltage", multiplier: 1, unit: raw.toUpperCase() === "VAC" || raw.toUpperCase() === "VDC" ? raw.toUpperCase() : "V" };
+  if (/^mv$/.test(lower)) return { kind: "voltage", label: "Voltage", multiplier: 1e-3, unit: "mV" };
+  if (/^kv$/.test(lower)) return { kind: "voltage", label: "Voltage", multiplier: 1e3, unit: "kV" };
+
+  if (/^(a|amp|amps|ampere|amperes)$/.test(lower)) return { kind: "current", label: "Current", multiplier: 1, unit: "A" };
+  if (/^ma$/.test(lower)) return { kind: "current", label: "Current", multiplier: 1e-3, unit: "mA" };
+  if (/^(ua|microa|microamp|microamps|microampere|microamperes)$/.test(lower)) return { kind: "current", label: "Current", multiplier: 1e-6, unit: "uA" };
+  if (/^ka$/.test(lower)) return { kind: "current", label: "Current", multiplier: 1e3, unit: "kA" };
+
+  if (/^(w|watt|watts)$/.test(lower)) return { kind: "power", label: "Power", multiplier: 1, unit: "W" };
+  if (/^mw$/.test(lower)) return { kind: "power", label: "Power", multiplier: 1e-3, unit: "mW" };
+  if (/^kw$/.test(lower)) return { kind: "power", label: "Power", multiplier: 1e3, unit: "kW" };
+
+  if (/^(hz|hertz)$/.test(lower)) return { kind: "frequency", label: "Frequency", multiplier: 1, unit: "Hz" };
+  if (/^khz$/.test(lower)) return { kind: "frequency", label: "Frequency", multiplier: 1e3, unit: "kHz" };
+  if (/^mhz$/.test(lower)) return { kind: "frequency", label: "Frequency", multiplier: 1e6, unit: "MHz" };
+  if (/^ghz$/.test(lower)) return { kind: "frequency", label: "Frequency", multiplier: 1e9, unit: "GHz" };
+
+  if (/^rpm$/.test(lower)) return { kind: "speed", label: "Speed", multiplier: 1, unit: "RPM" };
+  if (/^(bit|bits)$/.test(lower)) return { kind: "resolution", label: "Resolution", multiplier: 1, unit: "bit" };
+  if (/^(b|byte|bytes)$/.test(lower)) return { kind: "memory", label: "Memory", multiplier: 1, unit: "B" };
+  if (/^(kb|kbyte|kbytes|kilobyte|kilobytes)$/.test(lower)) return { kind: "memory", label: "Memory", multiplier: 1e3, unit: "kB" };
+  if (/^(mb|mbyte|mbytes|megabyte|megabytes)$/.test(lower)) return { kind: "memory", label: "Memory", multiplier: 1e6, unit: "MB" };
+  if (/^(gb|gbyte|gbytes|gigabyte|gigabytes)$/.test(lower)) return { kind: "memory", label: "Memory", multiplier: 1e9, unit: "GB" };
+  if (/^(kbit|kbits)$/.test(lower)) return { kind: "memory", label: "Memory", multiplier: 1e3, unit: "kbit" };
+  if (/^(mbit|mbits)$/.test(lower)) return { kind: "memory", label: "Memory", multiplier: 1e6, unit: "Mbit" };
+  if (/^(gbit|gbits)$/.test(lower)) return { kind: "memory", label: "Memory", multiplier: 1e9, unit: "Gbit" };
+
+  if (/^(h|henry|henries)$/.test(lower)) return { kind: "inductance", label: "Inductance", multiplier: 1, unit: "H" };
+  if (/^mh$/.test(lower)) return { kind: "inductance", label: "Inductance", multiplier: 1e-3, unit: "mH" };
+  if (/^(uh|microh|microhenry|microhenries)$/.test(lower)) return { kind: "inductance", label: "Inductance", multiplier: 1e-6, unit: "uH" };
+  if (/^nh$/.test(lower)) return { kind: "inductance", label: "Inductance", multiplier: 1e-9, unit: "nH" };
+
+  if (/^(f|farad|farads)$/.test(lower)) return { kind: "capacitance", label: "Capacitance", multiplier: 1, unit: "F" };
+  if (/^mf$/.test(lower)) return { kind: "capacitance", label: "Capacitance", multiplier: 1e-3, unit: "mF" };
+  if (/^(uf|microf|microfarad|microfarads)$/.test(lower)) return { kind: "capacitance", label: "Capacitance", multiplier: 1e-6, unit: "uF" };
+  if (/^nf$/.test(lower)) return { kind: "capacitance", label: "Capacitance", multiplier: 1e-9, unit: "nF" };
+  if (/^pf$/.test(lower)) return { kind: "capacitance", label: "Capacitance", multiplier: 1e-12, unit: "pF" };
+
+  if (/^(ohm|ohms)$/.test(lower)) return { kind: "resistance", label: "Resistance", multiplier: 1, unit: "Ohm" };
+  if (/^k(ohm|ohms)?$/.test(lower)) return { kind: "resistance", label: "Resistance", multiplier: 1e3, unit: "kOhm" };
+  if (/^(meg|mega)(ohm|ohms)?$/.test(lower)) return { kind: "resistance", label: "Resistance", multiplier: 1e6, unit: "MOhm" };
+  if (/^m(ohm|ohms)$/.test(lower)) {
+    return raw.startsWith("M")
+      ? { kind: "resistance", label: "Resistance", multiplier: 1e6, unit: "MOhm" }
+      : { kind: "resistance", label: "Resistance", multiplier: 1e-3, unit: "mOhm" };
+  }
+  if (lower === "k" && expected.has("resistance")) {
+    return { kind: "resistance", label: "Resistance", multiplier: 1e3, unit: "kOhm" };
+  }
+  if (lower === "m" && expected.has("resistance")) {
+    return raw.startsWith("M")
+      ? { kind: "resistance", label: "Resistance", multiplier: 1e6, unit: "MOhm" }
+      : { kind: "resistance", label: "Resistance", multiplier: 1e-3, unit: "mOhm" };
+  }
+
+  return null;
+}
+
+function parameterCanonical(kind, value) {
+  const normalized = normalizeParameterNumber(value);
+  return normalized ? `${kind}:${normalized}` : null;
+}
+
+function parseComponentCategory(query) {
+  const text = String(query || "").toLowerCase();
+  if (/\bop\s*amp(s)?\b/.test(text) || /\boperational\s+amplifier(s)?\b/.test(text)) {
+    return "OpAmp";
+  }
+
+  const words = text.match(/[a-z]+/g) || [];
+  for (const word of words) {
+    if (CATEGORY_ALIASES[word]) return CATEGORY_ALIASES[word];
+  }
+
+  return null;
+}
+
+function parseParameterValues(text, expectedKinds = []) {
+  const values = [];
+  const seen = new Set();
+  const pattern = /(\d+(?:\.\d+)?)\s*([a-zA-ZµΩ]+(?:\s*ohms?)?|Ω)(?=$|[^a-zA-ZµΩ])/g;
+
+  for (const match of String(text || "").matchAll(pattern)) {
+    const unit = normalizeParameterUnit(match[2], expectedKinds);
+    if (!unit) continue;
+
+    const baseValue = Number(match[1]) * unit.multiplier;
+    const canonical = parameterCanonical(unit.kind, baseValue);
+    if (!canonical || seen.has(canonical)) continue;
+
+    seen.add(canonical);
+    values.push({
+      kind: unit.kind,
+      label: unit.label,
+      raw: match[0],
+      display: `${match[1]}${unit.unit}`,
+      canonical,
+    });
+  }
+
+  return values;
+}
+
+function parseParameterSearch(query) {
+  const category = parseComponentCategory(query);
+  const expectedKinds = category ? PARAMETER_KIND_BY_CATEGORY[category] || [] : [];
+
+  return {
+    category,
+    values: parseParameterValues(query, expectedKinds),
+  };
+}
+
 function parameterSearchTerms(query) {
   const text = String(query || "").trim();
   const lower = text.toLowerCase();
   const compact = lower.replace(/\s+/g, "");
-  const terms = [text];
+  const parsed = parseParameterSearch(text);
+  const terms = [text, parsed.category, ...parsed.values.flatMap((value) => [
+    value.raw,
+    value.display,
+    value.raw.replace(/\s+/g, ""),
+    value.display.replace(/\s+/g, ""),
+  ])];
 
   const addTerms = (...values) => {
     values.forEach((value) => {
@@ -174,7 +386,7 @@ function parameterSearchTerms(query) {
     addTerms("farad", "farads", "capacitor", "capacitance");
   }
 
-  if (/\d+(?:\.\d+)?\s*(u|\u00b5|m)?h\b/i.test(compact) || /henr(?:y|ies)\b/i.test(text)) {
+  if (/\d+(?:\.\d+)?\s*(n|u|\u00b5|m)?h\b/i.test(compact) || /henr(?:y|ies)\b/i.test(text)) {
     addTerms("henry", "henries", "inductor", "inductance");
   }
 
@@ -182,7 +394,11 @@ function parameterSearchTerms(query) {
     addTerms("dB", "decibel", "gain", "attenuation", "amplifier", "filter");
   }
 
-  return terms; 
+  if (parsed.category && CATEGORY_SEARCH_TERMS[parsed.category]) {
+    addTerms(...CATEGORY_SEARCH_TERMS[parsed.category]);
+  }
+
+  return terms.filter(Boolean); 
 }
 
 const licenseFilePath = path.join(__dirname, "../data/symbols/LICENSE.md");
@@ -564,6 +780,68 @@ function ratingValue(textValue, numericValue) {
   return "";
 }
 
+function cleanValue(value) {
+  return String(value || "")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function isKnownValue(value) {
+  const text = cleanValue(value);
+  return text && text !== "0" && text.toLowerCase() !== "yes";
+}
+
+function addComponentValue(values, seen, label, value) {
+  const clean = cleanValue(value);
+  if (!clean) return;
+
+  const key = `${label}:${clean}`.toLowerCase();
+  if (seen.has(key)) return;
+
+  seen.add(key);
+  values.push({ label, value: clean });
+}
+
+function addMatches(values, seen, text, label, pattern) {
+  for (const match of String(text || "").matchAll(pattern)) {
+    addComponentValue(values, seen, label, match[0]);
+  }
+}
+
+function componentValues(row) {
+  const values = [];
+  const seen = new Set();
+  const categoryKey = String(row.category || "").toLowerCase();
+  const text = [
+    row.symbol_name,
+    row.base_name,
+    row.category,
+    row.device_type,
+    row.description,
+    row.keywords,
+    row.tags,
+    row.package,
+  ]
+    .filter(Boolean)
+    .join(" ");
+
+  if (categoryKey === "connector") {
+    if (isKnownValue(row.pin_count)) addComponentValue(values, seen, "Pins", row.pin_count);
+  }
+
+  if (isKnownValue(row.voltage)) addComponentValue(values, seen, "Voltage", row.voltage);
+  if (isKnownValue(row.current)) addComponentValue(values, seen, "Current", row.current);
+  if (isKnownValue(row.power)) addComponentValue(values, seen, "Power", row.power);
+
+  parseParameterValues(text).forEach((value) => {
+    addComponentValue(values, seen, value.label, value.display);
+  });
+
+  if (/\bunity gain\b/i.test(text)) addComponentValue(values, seen, "Gain", "Unity gain");
+
+  return values;
+}
+
 function rowTags(row) {
   const tags = normalizeTags(row.tags);
   if (tags.length) return tags;
@@ -599,6 +877,7 @@ function normalizeDbRow(row) {
     voltage: ratingValue(row.voltage, row.voltage_rating),
     current: ratingValue(row.current, row.current_rating),
     power: ratingValue(row.power, row.power_rating),
+    component_values: componentValues(row),
     datasheet: row.datasheet || "",
     tags: rowTags(row),
     license: licenseInfo.name,
@@ -654,12 +933,59 @@ function normalizeShipPart(item) {
   };
 }
 
+function searchableRowText(row) {
+  return [
+    row.symbol_name,
+    row.base_name,
+    row.name,
+    row.category,
+    row.device_type,
+    row.description,
+    row.keywords,
+    row.tags,
+    row.package,
+    row.contents,
+    row.voltage,
+    row.current,
+    row.power,
+  ]
+    .filter(Boolean)
+    .join(" ");
+}
+
+function rowMatchesComponentCategory(row, category) {
+  if (!category) return true;
+  if (String(row.category || "").toLowerCase() === category.toLowerCase()) return true;
+
+  const text = searchableRowText(row).toLowerCase();
+  if (category === "Capacitor") return /\b(capacitors?|capacitance|farads?)\b/i.test(text);
+  if (category === "Inductor") return /\b(inductors?|inductance|chokes?|coils?|ferrite)\b/i.test(text);
+  if (category === "OpAmp") return /\b(op\s*amps?|operational\s+amplifiers?)\b/i.test(text);
+
+  return false;
+}
+
+function rowMatchesParameterSearch(row, parsedSearch) {
+  if (!parsedSearch.category && parsedSearch.values.length === 0) return true;
+  if (!rowMatchesComponentCategory(row, parsedSearch.category)) return false;
+  if (parsedSearch.values.length === 0) return true;
+
+  const expectedKinds = parsedSearch.category
+    ? PARAMETER_KIND_BY_CATEGORY[parsedSearch.category] || []
+    : [];
+  const rowValues = parseParameterValues(searchableRowText(row), expectedKinds);
+  const rowCanonicalValues = new Set(rowValues.map((value) => value.canonical));
+
+  return parsedSearch.values.every((value) => rowCanonicalValues.has(value.canonical));
+}
+
 /* ---------- Search API ---------- */
 
 app.get("/api/search", (req, res) => {
   const q = req.query.q || "";
 
   const queryText = normalizeCategoryQuery(q);
+  const parsedSearch = parseParameterSearch(q);
   const searchTerms = parameterSearchTerms(queryText);
   const searchColumns = [
     "kid_symbol",
@@ -707,7 +1033,7 @@ app.get("/api/search", (req, res) => {
         ELSE 3
       END,
       symbol_name
-    LIMIT 500
+    LIMIT ${parsedSearch.values.length ? 2000 : 500}
   `;
 
   db.all(
@@ -725,7 +1051,10 @@ app.get("/api/search", (req, res) => {
       return res.status(500).json({ error: "Database error" });
     }
 
-    const dbResults = rows.map(normalizeDbRow);
+    const dbResults = rows
+      .filter((row) => rowMatchesParameterSearch(row, parsedSearch))
+      .slice(0, 500)
+      .map(normalizeDbRow);
 
     let filteredShipParts;
 

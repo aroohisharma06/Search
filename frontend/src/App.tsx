@@ -15,6 +15,7 @@ interface SymbolItem {
   voltage?: string | number;
   current?: string | number;
   power?: string | number;
+  component_values?: ComponentValue[];
   keywords?: string;
   package?: string;
   pin_count?: number;
@@ -27,6 +28,29 @@ interface SymbolItem {
   _uid?: string;
   _time?: number;
 }
+
+interface ComponentValue {
+  label: string;
+  value: string;
+}
+
+const componentSearchOptions = [
+  { name: "Amplifier", valueLabel: "Gain" },
+  { name: "OpAmp", valueLabel: "Gain" },
+  { name: "Inductor", valueLabel: "Inductance" },
+  { name: "Oscillator", valueLabel: "Frequency" },
+  { name: "ADC", valueLabel: "Resolution" },
+  { name: "DAC", valueLabel: "Resolution" },
+  { name: "Memory", valueLabel: "Memory" },
+  { name: "Regulator", valueLabel: "Voltage / Current" },
+  { name: "Diode", valueLabel: "Voltage / Current" },
+  { name: "LED", valueLabel: "Voltage / Current" },
+  { name: "Transistor", valueLabel: "Voltage / Current / Resistance" },
+  { name: "Switch", valueLabel: "Voltage / Current / Resistance" },
+  { name: "Relay", valueLabel: "Voltage / Current" },
+  { name: "Connector", valueLabel: "Pins" },
+  { name: "Register", valueLabel: "Bits" },
+];
 
 interface LicenseInfo {
   title?: string;
@@ -99,8 +123,14 @@ export default function App() {
   const [showDropdown, setShowDropdown] = useState(false);
   const [hasSearched, setHasSearched] = useState(false);
   const [viewMode, setViewMode] = useState<"grid" | "list">("grid");
+  const [suggestions, setSuggestions] = useState<SymbolItem[]>([]);
 
   const isHome = !hasSearched;
+  const filteredComponentOptions = query.trim()
+    ? componentSearchOptions.filter((item) =>
+        item.name.toLowerCase().includes(query.trim().toLowerCase()),
+      )
+    : [];
 
   const getUniqueId = (item: SymbolItem) =>
     (item.id ?? "") +
@@ -134,6 +164,38 @@ export default function App() {
 
     const text = String(value);
     return /[a-zA-Z]/.test(text) ? text : `${text} ${unit}`;
+  };
+
+  const formatComponentValues = (values?: ComponentValue[]) => {
+    if (!values?.length) return "Not specified";
+    return values.map((item) => `${item.label}: ${item.value}`).join(", ");
+  };
+
+  const hasComponentValues = (values?: ComponentValue[]) => Boolean(values?.length);
+
+  const formatValueField = (item: SymbolItem, maxItems?: number) => {
+    if (!item.component_values?.length) return "Not specified";
+    const values = maxItems
+      ? item.component_values.slice(0, maxItems)
+      : item.component_values;
+    const suffix =
+      maxItems && item.component_values.length > maxItems
+        ? ` +${item.component_values.length - maxItems} more`
+        : "";
+
+    return `${formatComponentValues(values)}${suffix}`;
+  };
+
+  const selectComponentOption = (name: string) => {
+    setQuery(name);
+    setShowDropdown(false);
+    fetchResults(name);
+  };
+
+  const selectSuggestion = (item: SymbolItem) => {
+    setQuery(item.symbol_name);
+    setShowDropdown(false);
+    openItem(item);
   };
 
   const openItem = (item: SymbolItem) => {
@@ -185,8 +247,30 @@ export default function App() {
     return () => window.removeEventListener("keydown", closeOnEscape);
   }, [selected]);
 
-  const fetchResults = () => {
+  useEffect(() => {
     const trimmed = query.trim();
+
+    if (!trimmed) {
+      setSuggestions([]);
+      return;
+    }
+
+    const timer = window.setTimeout(() => {
+      fetch(`http://localhost:3000/api/search?q=${encodeURIComponent(trimmed)}`)
+        .then((res) => res.json())
+        .then((data) => {
+          if (Array.isArray(data)) setSuggestions(data.slice(0, 6));
+          else setSuggestions([]);
+        })
+        .catch(() => setSuggestions([]));
+    }, 200);
+
+    return () => window.clearTimeout(timer);
+  }, [query]);
+
+  const fetchResults = (searchText = query) => {
+    const trimmed = searchText.trim();
+    setShowDropdown(false);
 
     if (!trimmed) {
       setResults([]);
@@ -240,17 +324,19 @@ export default function App() {
             <span className="text-yellow-400">Search</span>
           </h1>
 
-          <div className="w-full max-w-2xl">
+          <div className="relative w-full max-w-2xl">
             <div className="flex border-2 border-yellow-400 rounded-full overflow-hidden bg-white">
               <input
                 value={query}
+                onFocus={() => setShowDropdown(true)}
+                onBlur={() => setTimeout(() => setShowDropdown(false), 200)}
                 onChange={(e) => setQuery(e.target.value)}
                 onKeyDown={(e) => e.key === "Enter" && fetchResults()}
                 placeholder="Search components, parameters, ID, or license..."
                 className="flex-1 px-5 py-3 outline-none"
               />
               <span
-                onClick={fetchResults}
+                onClick={() => fetchResults()}
                 className="px-5 text-gray-700 hover:text-black text-lg flex items-center cursor-pointer"
                 role="button"
                 aria-label="Search"
@@ -258,6 +344,67 @@ export default function App() {
                 <SearchIcon />
               </span>
             </div>
+
+            {showDropdown &&
+              query &&
+              (suggestions.length > 0 || filteredComponentOptions.length > 0) && (
+              <div className="absolute top-full left-0 w-full bg-white shadow-lg rounded-md mt-1 z-50 border max-h-72 overflow-y-auto">
+                {suggestions.length > 0 && (
+                  <>
+                    <div className="px-4 py-2 text-xs font-semibold text-gray-700 bg-gray-100 border-b">
+                      Matching Components
+                    </div>
+
+                    {suggestions.map((item) => (
+                      <div
+                        key={getUniqueId(item)}
+                        onMouseDown={(event) => event.preventDefault()}
+                        onClick={() => selectSuggestion(item)}
+                        className="flex items-center gap-3 px-4 py-2 hover:bg-gray-100 cursor-pointer"
+                      >
+                        <img
+                          src={getImageUrl(item)}
+                          className="w-9 h-9 object-contain bg-gray-50 rounded p-1"
+                        />
+                        <div className="min-w-0">
+                          <p className="text-sm font-semibold text-black truncate">
+                            {item.symbol_name}
+                          </p>
+                          <p className="text-xs text-gray-500 truncate">
+                            {item.category || "Component"}
+                            {hasComponentValues(item.component_values)
+                              ? ` • Values: ${formatValueField(item, 3)}`
+                              : ""}
+                          </p>
+                        </div>
+                      </div>
+                    ))}
+                  </>
+                )}
+
+                {filteredComponentOptions.length > 0 && (
+                  <>
+                    <div className="px-4 py-2 text-xs font-semibold text-gray-700 bg-gray-100 border-y">
+                      Categories
+                    </div>
+
+                    {filteredComponentOptions.map((item) => (
+                      <div
+                        key={item.name}
+                        onMouseDown={(event) => event.preventDefault()}
+                        onClick={() => selectComponentOption(item.name)}
+                        className="px-4 py-2 hover:bg-gray-100 cursor-pointer"
+                      >
+                        <p className="text-sm font-semibold text-black">{item.name}</p>
+                        <p className="text-xs text-gray-500">
+                          Value column: {item.valueLabel}
+                        </p>
+                      </div>
+                    ))}
+                  </>
+                )}
+              </div>
+            )}
           </div>
         </div>
       ) : (
@@ -300,7 +447,7 @@ export default function App() {
 
                 {/* SEARCH ICON  */}
                 <span
-                  onClick={fetchResults}
+                  onClick={() => fetchResults()}
                   className="px-3 text-gray-700 hover:text-black text-lg flex items-center cursor-pointer"
                   role="button"
                   aria-label="Search"
@@ -310,6 +457,67 @@ export default function App() {
               </div>
 
               {/* DROPDOWN  */}
+              {showDropdown &&
+                query &&
+                (suggestions.length > 0 || filteredComponentOptions.length > 0) && (
+                <div className="absolute top-full left-0 w-full bg-white shadow-lg rounded-md mt-1 z-50 border max-h-72 overflow-y-auto">
+                  {suggestions.length > 0 && (
+                    <>
+                      <div className="px-4 py-2 text-xs font-semibold text-gray-700 bg-gray-100 border-b">
+                        Matching Components
+                      </div>
+
+                      {suggestions.map((item) => (
+                        <div
+                          key={getUniqueId(item)}
+                          onMouseDown={(event) => event.preventDefault()}
+                          onClick={() => selectSuggestion(item)}
+                          className="flex items-center gap-3 px-4 py-2 hover:bg-gray-100 cursor-pointer"
+                        >
+                          <img
+                            src={getImageUrl(item)}
+                            className="w-9 h-9 object-contain bg-gray-50 rounded p-1"
+                          />
+                          <div className="min-w-0">
+                            <p className="text-sm font-semibold text-black truncate">
+                              {item.symbol_name}
+                            </p>
+                            <p className="text-xs text-gray-500 truncate">
+                              {item.category || "Component"}
+                              {hasComponentValues(item.component_values)
+                                ? ` • Values: ${formatValueField(item, 3)}`
+                                : ""}
+                            </p>
+                          </div>
+                        </div>
+                      ))}
+                    </>
+                  )}
+
+                  {filteredComponentOptions.length > 0 && (
+                    <>
+                      <div className="px-4 py-2 text-xs font-semibold text-gray-700 bg-gray-100 border-y">
+                        Categories
+                      </div>
+
+                      {filteredComponentOptions.map((item) => (
+                        <div
+                          key={item.name}
+                          onMouseDown={(event) => event.preventDefault()}
+                          onClick={() => selectComponentOption(item.name)}
+                          className="px-4 py-2 hover:bg-gray-100 cursor-pointer"
+                        >
+                          <p className="text-sm font-semibold text-black">{item.name}</p>
+                          <p className="text-xs text-gray-500">
+                            Value column: {item.valueLabel}
+                          </p>
+                        </div>
+                      ))}
+                    </>
+                  )}
+                </div>
+              )}
+
               {showDropdown && recent.length > 0 && !query && (
                 <div className="absolute top-full left-0 w-full bg-white shadow-lg rounded-md mt-1 z-50 border max-h-72 overflow-y-auto">
                   <div className="px-4 py-2 text-xs font-semibold text-gray-700 bg-gray-100 border-b">
@@ -440,6 +648,11 @@ export default function App() {
                       <p className="text-xs text-center font-semibold truncate">
                         {item.symbol_name}
                       </p>
+                      {hasComponentValues(item.component_values) && (
+                        <p className="text-[11px] text-center text-gray-500 truncate">
+                          Values: {formatValueField(item, 3)}
+                        </p>
+                      )}
                     </div>
                   ))}
                 </div>
@@ -455,6 +668,11 @@ export default function App() {
                       <div>
                         <p>{item.symbol_name}</p>
                         <p className="text-xs text-gray-500">{item.company}</p>
+                        {hasComponentValues(item.component_values) && (
+                          <p className="text-xs text-gray-500">
+                            Values: {formatValueField(item, 5)}
+                          </p>
+                        )}
                       </div>
                     </div>
                   ))}
@@ -541,6 +759,11 @@ export default function App() {
               <p>
                 <span className="font-bold">Mount:</span>{" "}
                 {showMeta(selected.mount_type)}
+              </p>
+
+              <p>
+                <span className="font-bold">Values:</span>{" "}
+                {formatValueField(selected)}
               </p>
 
               <p>
